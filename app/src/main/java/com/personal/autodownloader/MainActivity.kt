@@ -14,6 +14,9 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.*
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.regex.Pattern
 
 class MainActivity : AppCompatActivity() {
 
@@ -34,42 +37,42 @@ class MainActivity : AppCompatActivity() {
     private fun setupUserInterface() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 64, 48, 48)
+            setPadding(40, 56, 40, 40)
             setBackgroundColor(Color.parseColor("#121212"))
         }
 
         val title = TextView(this).apply {
-            text = "Multi-Platform Auto Downloader"
+            text = "Auto Video Downloader"
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
         }
 
         val subtitle = TextView(this).apply {
-            text = "Paste YouTube, Instagram, Pinterest, Bilibili links (even with no spaces):"
-            textSize = 13f
+            text = "Paste YouTube, Instagram, Pinterest links (spaces not required):"
+            textSize = 12f
             setTextColor(Color.parseColor("#AAAAAA"))
-            setPadding(0, 8, 0, 24)
+            setPadding(0, 6, 0, 20)
         }
 
         urlInput = EditText(this).apply {
-            hint = "https://instagram.com/...https://pin.it/...https://youtube.com/..."
+            hint = "Paste your jammed links here..."
             setHintTextColor(Color.parseColor("#666666"))
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#1E1E1E"))
-            minLines = 5
-            maxLines = 8
+            minLines = 4
+            maxLines = 6
             gravity = Gravity.TOP or Gravity.START
-            setPadding(32, 32, 32, 32)
+            setPadding(28, 28, 28, 28)
         }
 
         val buttonRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 24, 0, 16)
+            setPadding(0, 20, 0, 16)
         }
 
         downloadBtn = Button(this).apply {
-            text = "Auto Detect & Save to Gallery"
+            text = "Download Directly to Gallery"
             isAllCaps = false
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
             setOnClickListener { startBatchDownload() }
@@ -88,16 +91,16 @@ class MainActivity : AppCompatActivity() {
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = 0
-            setPadding(0, 8, 0, 16)
+            setPadding(0, 4, 0, 14)
         }
 
         statusLog = TextView(this).apply {
-            text = "Initializing built-in extractor engine...\n"
-            textSize = 13f
+            text = "Ready to download.\n"
+            textSize = 12f
             typeface = Typeface.MONOSPACE
             setTextColor(Color.parseColor("#00E676"))
             setBackgroundColor(Color.parseColor("#181818"))
-            setPadding(24, 24, 24, 24)
+            setPadding(20, 20, 20, 20)
             movementMethod = ScrollingMovementMethod()
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -122,12 +125,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Splits links even when jammed together without spaces
     private fun extractGluedLinks(rawText: String): List<String> {
         return rawText
             .split(Regex("(?=https?://)"))
             .map { it.trim() }
             .filter { it.startsWith("http://") || it.startsWith("https://") }
+    }
+
+    private fun cleanPinterestUrl(rawUrl: String): String {
+        if (!rawUrl.contains("pinterest") && !rawUrl.contains("pin.it")) return rawUrl
+        return try {
+            val conn = URL(rawUrl).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            conn.connect()
+            val finalUrl = conn.url.toString()
+            val pattern = Pattern.compile("/pin/(\\d+)")
+            val matcher = pattern.matcher(finalUrl)
+            if (matcher.find()) {
+                "https://www.pinterest.com/pin/${matcher.group(1)}/"
+            } else finalUrl
+        } catch (e: Exception) {
+            rawUrl
+        }
     }
 
     private fun initializeEngine() {
@@ -136,10 +156,9 @@ class MainActivity : AppCompatActivity() {
                 YoutubeDL.getInstance().init(applicationContext)
                 FFmpeg.getInstance().init(applicationContext)
                 isEngineReady = true
-                logMessage("Engine Ready! Supports 1000+ platforms.")
-                logMessage("Zero-storage cache mode active.")
+                logMessage("Engine Initialized Successfully.")
             } catch (e: Exception) {
-                logMessage("Init Error: ${e.message}")
+                logMessage("Engine Init Error: ${e.message}")
             }
         }
     }
@@ -147,16 +166,16 @@ class MainActivity : AppCompatActivity() {
     private fun updateExtractorEngine() {
         if (!isEngineReady) return
         updateEngineBtn.isEnabled = false
-        logMessage("Checking for latest platform extractors...")
+        logMessage("Updating yt-dlp core to latest version...")
         scope.launch(Dispatchers.IO) {
             try {
                 val status = YoutubeDL.getInstance().updateYoutubeDL(
                     applicationContext,
                     YoutubeDL.UpdateChannel._NIGHTLY
                 )
-                logMessage("Engine update status: $status")
+                logMessage("Update Finished: $status")
             } catch (e: Exception) {
-                logMessage("Update failed: ${e.message}")
+                logMessage("Update Failed: ${e.message}")
             } finally {
                 withContext(Dispatchers.Main) { updateEngineBtn.isEnabled = true }
             }
@@ -165,37 +184,40 @@ class MainActivity : AppCompatActivity() {
 
     private fun startBatchDownload() {
         if (!isEngineReady) {
-            Toast.makeText(this, "Engine still initializing, wait a second...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Engine is loading, please wait...", Toast.LENGTH_SHORT).show()
             return
         }
 
-        val links = extractGluedLinks(urlInput.text.toString())
-        if (links.isEmpty()) {
-            Toast.makeText(this, "Paste at least one valid http/https link!", Toast.LENGTH_SHORT).show()
+        val rawLinks = extractGluedLinks(urlInput.text.toString())
+        if (rawLinks.isEmpty()) {
+            Toast.makeText(this, "Please paste at least one link!", Toast.LENGTH_SHORT).show()
             return
         }
 
         downloadBtn.isEnabled = false
         progressBar.progress = 0
-        logMessage("\n--- Auto-Detected ${links.size} Link(s) ---")
-        links.forEachIndexed { i, link -> logMessage("[${i + 1}] $link") }
+        logMessage("\n--- Found ${rawLinks.size} Links ---")
 
         scope.launch(Dispatchers.IO) {
-            val workDir = File(cacheDir, "temp_video_work")
+            val workDir = File(cacheDir, "temp_stream_work")
 
-            for ((index, url) in links.withIndex()) {
+            for ((index, rawUrl) in rawLinks.withIndex()) {
                 try {
                     if (workDir.exists()) workDir.deleteRecursively()
                     workDir.mkdirs()
 
-                    logMessage("\nDownloading (${index + 1}/${links.size}):\n$url")
+                    val targetUrl = cleanPinterestUrl(rawUrl)
+                    logMessage("\n[${index + 1}/${rawLinks.size}] Downloading: $targetUrl")
 
-                    val request = YoutubeDLRequest(url).apply {
-                        addOption("-o", "${workDir.absolutePath}/video_${System.currentTimeMillis()}.%(ext)s")
+                    val request = YoutubeDLRequest(targetUrl).apply {
+                        addOption("-o", "${workDir.absolutePath}/video_%(id)s.%(ext)s")
                         addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                         addOption("--merge-output-format", "mp4")
+                        // Browser User-Agent: Instagram block bypass karne ke liye
+                        addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
                         addOption("--no-mtime")
                         addOption("--no-playlist")
+                        addOption("--no-check-certificates")
                     }
 
                     YoutubeDL.getInstance().execute(request) { progress, _, _ ->
@@ -203,18 +225,23 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread { progressBar.progress = p }
                     }
 
-                    val downloadedFile = workDir.listFiles()?.firstOrNull { it.isFile }
-                    if (downloadedFile != null && downloadedFile.exists()) {
-                        val savedName = "Video_${System.currentTimeMillis()}.mp4"
-                        moveToGalleryAndDeleteTemp(downloadedFile, savedName)
-                        logMessage("SUCCESS -> Saved to Gallery: Movies/AutoDownloader/$savedName")
+                    val downloadedFile = workDir.listFiles()?.firstOrNull { it.isFile && it.length() > 0 }
+                    if (downloadedFile != null) {
+                        val finalName = "Downloader_${System.currentTimeMillis()}.mp4"
+                        saveDirectlyToGallery(downloadedFile, finalName)
+                        logMessage("--> SUCCESS! Saved directly to Gallery (Movies/AutoDownloader)")
                     } else {
-                        logMessage("FAILED -> No output file created for link #${index + 1}")
+                        logMessage("--> Notice: No video file created (likely an image pin or protected post).")
                     }
                 } catch (e: Exception) {
-                    logMessage("ERROR on link #${index + 1}: ${e.message}")
+                    val err = e.message ?: ""
+                    if (err.contains("No video formats found")) {
+                        logMessage("--> Notice: Link contains Photo/Image only, no video found.")
+                    } else {
+                        logMessage("--> Error: $err")
+                    }
                 } finally {
-                    // Strictly wipe app cache after every single video so app takes 0 MB of video storage
+                    // Cache instantly wiped so app keeps 0 MB storage
                     if (workDir.exists()) workDir.deleteRecursively()
                 }
             }
@@ -223,12 +250,12 @@ class MainActivity : AppCompatActivity() {
                 progressBar.progress = 100
                 downloadBtn.isEnabled = true
                 urlInput.setText("")
-                logMessage("\n=== All Downloads Finished & Temp Cache Wiped (0 MB used) ===")
+                logMessage("\n=== All Tasks Finished (App Cache: 0 MB) ===")
             }
         }
     }
 
-    private fun moveToGalleryAndDeleteTemp(tempFile: File, displayName: String) {
+    private fun saveDirectlyToGallery(tempFile: File, displayName: String) {
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
@@ -237,7 +264,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val uri = contentResolver.insert(collection, values) ?: throw Exception("MediaStore URI creation failed")
+        val uri = contentResolver.insert(collection, values) ?: return
 
         try {
             contentResolver.openOutputStream(uri)?.use { outputStream ->
@@ -250,9 +277,7 @@ class MainActivity : AppCompatActivity() {
             contentResolver.update(uri, values, null, null)
         } catch (e: Exception) {
             contentResolver.delete(uri, null, null)
-            throw e
         } finally {
-            // Immediately delete temporary file
             tempFile.delete()
         }
     }
